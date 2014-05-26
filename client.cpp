@@ -75,9 +75,11 @@ bool collectAckInit()
     if(myClient.enoughServers())
       break;
   }
+#ifdef DEBUG
   for(set<unsigned int>::iterator it = myClient.servers_.begin();
       it != myClient.servers_.end(); ++it)
     cout << "server set " << *it <<endl;
+#endif
   return myClient.enoughServers();
 }
 
@@ -229,6 +231,7 @@ void sendReqWritePacket(size_t stagedSlot)
   p->byteOffset = htonl(myClient.stagedWrites[stagedSlot].byteOffset);
   size_t blockSize = myClient.stagedWrites[stagedSlot].blockSize;
   p->blockSize  = htonl(blockSize);
+
   memcpy(p->buffer, myClient.stagedWrites[stagedSlot].buffer, blockSize);
 
   sendPacket(&myClient, &pack);
@@ -308,16 +311,22 @@ void processAckCommitStatus(RFPacket * pack)
 {
   ASSERT(pack->type == ACK_COMMIT_STATUS);
   struct AckCommitStatusPacket *ack=(struct AckCommitStatusPacket*)&pack->body;
+#ifdef DEBUG
   cout << "------check server id" <<endl;
+#endif
   unsigned int serverId = ntohl(ack->serverId);
   if(myClient.servers_.find(serverId) == myClient.serversCommit_.end())
     return;
   int commitId = ntohl(ack->commitId);
+#ifdef DEBUG
   cout << "---------check commit id " << commitId << endl;
+#endif
   if(commitId != myClient.commitId_)
     return;
   unsigned short totalMissing = ntohs(ack->totalMissingWrite);
+#ifdef DEBUG
   cout << "Total Missing Write "<< totalMissing << endl;
+#endif
   if(!totalMissing) {
     myClient.serversCommit_.insert(serverId);
     return;
@@ -331,7 +340,7 @@ void sendReqServerPacket(const int type)
   RFPacket pack;
   pack.type = type;
   struct CommitIdPacket * commit = (struct CommitIdPacket *) & pack.body;
-  commit->commitId = myClient.commitId_;
+  commit->commitId = htonl(myClient.commitId_);
   sendPacket(&myClient, &pack);
 }
 
@@ -352,15 +361,19 @@ bool clientReceiveReply(ClientState clientState)
   event.eventDetail = & incoming;
   int retry = 0;
   int maxRetry = myClient.maxRetry();
-//  if(clientState == CheckStatus)
-    maxRetry *= myClient.writeRetransRatio_;
-  cout << "++++++ max Retrans is "<< maxRetry << endl;
+  if(clientState == CheckStatus)
+    maxRetry *= WRITE_RETRANS_RATIO;
+#ifdef DEBUG
+  cout << "++++++ max Retrans is "<< maxRetry << " "<< clientState << endl;
+#endif
   while(retry <= maxRetry) {
     NextEvent(&event, myClient.theSocket());
     switch(event.eventType) {
       case EVENT_TIMEOUT: {
         ++retry;
+#ifdef DEBUG
         printf("++ retry %d\n", retry); 
+#endif
         if(clientState == CheckStatus)  
           sendCheckCommitStatusPacket();
         if(clientState == ReqCommit) 
@@ -385,9 +398,13 @@ bool clientReceiveReply(ClientState clientState)
       }
     }
     //check if need to retry
-    for(set<unsigned int>::iterator it = myClient.serversCommit_.begin();
-        it != myClient.serversCommit_.end(); ++ it)
-        cout << "serversCommit_ :" << *it << endl;
+#ifdef DEBUG
+    if(myClient.serversCommit_.size() == myClient.numServers()) {
+      for(set<unsigned int>::iterator it = myClient.serversCommit_.begin();
+          it != myClient.serversCommit_.end(); ++ it)
+          cout << "serversCommit_ :" << *it << endl;
+    }
+#endif
     if(myClient.serversCommit_.size() >= size_t(myClient.numServers()) )
       return true;
   }

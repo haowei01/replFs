@@ -62,7 +62,6 @@ void NextEvent(RFEvent *event, int socket)
         }
     }
   	if (FD_ISSET (socket, &fdmask)) {
-//      cout << "Packet comming in"<<endl;
 	  	socklen_t fromLen = sizeof(event->eventSource);
       int cc;
       event->eventType = EVENT_NETWORK;
@@ -96,13 +95,13 @@ void netInit(NetworkInstance *M)
 	if((thisHost = resolveHost(buf)) == (Sockaddr *) NULL)
 		cerr << "Error, who am I?" <<endl;
 	bcopy((caddr_t) thisHost, (caddr_t) (M->myAddr()), sizeof(Sockaddr));
-	
+
+/*	
 	char ip4[INET_ADDRSTRLEN];
   inet_ntop(AF_INET, &(M->myAddr()->sin_addr), ip4, INET_ADDRSTRLEN);
   std::cout << ip4 << std::endl;
-
+*/
 	M->theSocketIs(socket(AF_INET, SOCK_DGRAM, 0));
-//  cout << "** the socket is "<<M->theSocket() << endl;
   if (M->theSocket() < 0)
     cerr <<"can't get socket" <<endl;
 
@@ -142,7 +141,7 @@ void netInit(NetworkInstance *M)
    * Now we can try to find a game to join; if none, start one.
    */
 
-  cout <<endl;
+//  cout <<endl;
 
   /* set up some stuff strictly for this local sample */
 
@@ -151,9 +150,10 @@ void netInit(NetworkInstance *M)
   memcpy(&groupAddr, &nullAddr, sizeof(Sockaddr));
   groupAddr.sin_addr.s_addr = htonl(RFSGROUP);
 
+/*
   inet_ntop(AF_INET, &(groupAddr.sin_addr), ip4, INET_ADDRSTRLEN);
   std::cout << ip4 << std::endl;
-
+*/
 }
 
 Sockaddr *
@@ -170,9 +170,9 @@ resolveHost(register char *name)
     sa.sin_port = 0;
     bcopy(fhost->h_addr, &sa.sin_addr, fhost->h_length);
     addr_list = (struct in_addr **)fhost->h_addr_list;
-    for(int i=0; addr_list[i] != NULL; ++i) {
+/*    for(int i=0; addr_list[i] != NULL; ++i) {
       cout << "cout get host by name: " <<inet_ntoa(*addr_list[i]) <<endl;
-    }
+    }*/
   } else {
     fadd.s_addr = inet_addr(name);
     if (fadd.s_addr != (unsigned long)(-1)) {

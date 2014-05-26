@@ -1,13 +1,12 @@
 #include<cstdlib>
 #include<iostream>
-
 #include "network.h"
 #include "server.h"
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <map>
 
-#define DEBUG
+//#define DEBUG
 
 using namespace std;
 Server M;
@@ -24,13 +23,16 @@ void sendTestPacket(Server *M)
 
 void handleReqServerInit(struct IdPacket * id)
 {
+  unsigned int clientId = ntohl(id->Id);
+#ifdef DEBUG
   cout << "Handle Server Init Req from " << ntohl(id->Id) << endl;
-//  struct IdPacket * id = (struct IdPacket *) & p->body;
-  if(M.clientId() != id->Id) {
-    M.clientIdIs(id->Id);
+#endif
+  if(M.clientId() != clientId) {
+    M.clientIdIs(clientId);
     if(M.fd() >= 0)
       close(M.fd());
     M.fdIs(-1);
+    M.openFile_ = false;
     M.serverBufferReset();
   }
   RFPacket pack;
@@ -42,7 +44,9 @@ void handleReqServerInit(struct IdPacket * id)
 
 void handleOpenFileReq(struct ReqOpenFilePacket * req)
 {
+#ifdef DEBUG
   cout << "Handle Server Open File Req\n";
+#endif
   RFPacket pack;
   pack.type = ACK_OPEN_FILE;
   struct AckOpenFilePacket * ack = (struct AckOpenFilePacket *) & pack.body;
@@ -57,17 +61,14 @@ void handleOpenFileReq(struct ReqOpenFilePacket * req)
   } else
     strncpy(nameBuf, fileName, nameLen);
   nameBuf[nameLen] = 0;
+  if(M.file() != string(nameBuf) && M.fd() > 0){
+    close(M.fd());
+    M.fdIs(-1);
+  }
   M.fileIs(string(nameBuf));
-  int fd = M.fd();
-  if(fd < 0) 
-    fd = open((M.dir() + '/' + M.file()).c_str(),  
-              O_WRONLY|O_CREAT, S_IRUSR|S_IWUSR );
+  M.openFile_ = true;
 
-  if(fd >= 0) {
-    M.fdIs(fd);
-    ack->success = true;
-  } else
-    ack->success = false;
+  ack->success = true;
   sendPacket(&M, &pack);
 }
 
@@ -93,8 +94,12 @@ void handleCheckCommitStatus(struct CheckCommitStatusPacket *check)
   int curCommitId =  M.lastCommitId_ + 1;
   if(curCommitId < 0)
     curCommitId = 0;
-  if(commitId < curCommitId)
+  if(commitId < curCommitId) {
+    cout << "Don't handle\n";
+    cout << "Cur commit Id "<< curCommitId << endl;
+    cout << "req Commit Id "<<commitId << endl;
     return;
+  }
 
   size_t totalWriteCount = ntohl(check->totalWriteCount);
   int writeSeqFirst = ntohl(check->writeSeqFirst);
@@ -103,7 +108,9 @@ void handleCheckCommitStatus(struct CheckCommitStatusPacket *check)
   vector<size_t>missing;
   for(size_t i=0; i < totalWriteCount; ++i){
     if(M.stagedWrites[i].writeSeq != writeSeq) {
+#ifdef DEBUG
       cout << i <<" Slot writeSeq is "<<writeSeq<<endl;
+#endif
       missing.push_back(i);
       if(missing.size() >= MAX_MISSING_WRITE)
         break;
@@ -139,7 +146,17 @@ void handleReqCommit(struct CommitIdPacket *req)
   int currentCommitId = M.lastCommitId_ + 1;
   if(currentCommitId < 0)
     currentCommitId = 0;
-  if(M.readyToCommit_ && currentCommitId <= reqCommitId ) {
+  if(M.readyToCommit_ && currentCommitId <= reqCommitId) {
+    int fd = M.fd();
+    if(fd < 0 && M.openFile_ == true && M.totalWriteCount_) {
+      fd = open((M.dir() + '/' + M.file()).c_str(),
+                O_WRONLY|O_CREAT, S_IRUSR|S_IWUSR );
+      if(fd >= 0) 
+        M.fdIs(fd);
+      else
+        cerr << "**** Open file failed in the server *******\n";
+    }
+
     for(size_t i = 0; i < M.totalWriteCount_; ++i) {
       struct StagedWrite & stagedWrite = M.stagedWrites[i];
  
@@ -180,6 +197,7 @@ void handleReqAbort(struct CommitIdPacket *req)
     }
     M.lastCommitId_ = reqAbortId;
     M.readyToCommit_ = false;
+    M.totalWriteCount_ = 0;
   }
   if(M.lastCommitId_ == reqAbortId) {
     M.sendServerIdPacket(ACK_ABORT);
@@ -201,6 +219,7 @@ void handleReqClose(struct CommitIdPacket *req)
     if (close( M.fd()) < 0 ) 
       cerr << "Close error" << endl;
     M.fdIs(-1);
+    M.openFile_ = false;
     M.serverBufferReset();
   }
   M.sendServerIdPacket(ACK_CLOSE);
@@ -271,14 +290,21 @@ int main (int argc, char *argv[])
   }
   M.dirIs(param[string("-mount")]);
 
-  srand(time(NULL));
+  char buf[128];
+  gethostname(buf, sizeof(buf));
+
+  int seed = 0;
+  for(int i=0; i<128 && buf[i]; ++i)
+    seed += buf[i];
+  srand(seed);
   M.theIdIs(rand());
-//  cout << "The server ID is " << M.theId() << endl;
+#ifdef DEBUG
+  cout << "The server ID is " << M.theId() << endl;
+#endif
   int portNum = atoi(param[string("-port")].c_str());
   M.portIs(portNum);
   M.setMaxRetry( atoi(param[string("-drop")].c_str()) );
   netInit(&M);
-  sendTestPacket(&M);
   serve(&M);
 
   return 0;

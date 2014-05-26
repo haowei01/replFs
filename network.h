@@ -17,6 +17,7 @@
 #define RFSGROUP       0xe0010101
 #define TIMEOUT 200
 #define MAX_MISSING_WRITE 40
+#define RETRANS_RATIO 5
 #define WRITE_RETRANS_RATIO 4
 #define FD_OPEN 4
 #define MAX_WRITE_STAGE 128
@@ -43,7 +44,7 @@ typedef struct sockaddr_in Sockaddr;
 
 typedef struct {
   unsigned char type;
-	char body [528];
+	char body [540];
 } RFPacket;
 
 typedef struct {
@@ -62,11 +63,12 @@ public:
   void portIs(int port) {this->port_ = port; } 
 	inline unsigned int theId() const { return this->Id_; }
 	void theIdIs(unsigned int Id) { this->Id_ = Id; }
-	void setMaxRetry(int packetLoss) { packetLoss_ = packetLoss;
+	void setMaxRetry(int packetLoss) { packetLoss_ = packetLoss/2;
 		if(packetLoss_ < 0) packetLoss_ = 0;
 		if(packetLoss_ > 99)packetLoss_ = 99; 
 		maxRetry_ = packetLoss_/10; 
 		if(packetLoss_ % 10) maxRetry_ ++;
+    maxRetry_ *= RETRANS_RATIO;
 	}
 	inline int packetLoss() const { return packetLoss_; } 
 	inline int maxRetry() const { return maxRetry_; }

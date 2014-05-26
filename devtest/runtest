@@ -1,0 +1,226 @@
+#!/bin/bash
+
+# Test Script for CS244B Replicated File System Assignment
+
+packetloss=0    # packet loss percentage
+port=           # UDP port to use
+rundir=         # path to client library and server executable
+servercount=1   # number of servers to test with
+
+if ! options=$(getopt -o d:hp:r:s: -l drop:,help,port:,rundir:,servers: -- "$@")
+then
+    # something went wrong, getopt will put out an error message for us
+    exit 1
+fi
+
+eval set -- "$options"
+
+usage() {
+    echo "Usage: $0 [--drop <percentage>] --port <num> --rundir <path> [--servers <num>]"
+    echo "  -d,--drop <percentage>: packet loss percentage"
+    echo "  -p,--port <num>: UDP port to use"
+    echo "  -r,--rundir <path>: Path to compiled client library and server binary"
+    echo "  -s,--servers <num>: Number of servers to test with"
+    exit 1
+}
+
+while [ $# -gt 0 ]
+do
+    case $1 in
+    -d|--drop)
+        packetloss=$2
+        shift
+        ;;
+    -h|--help)
+        usage
+        ;;
+    -p|--port)
+        port=$2
+        shift
+        ;;
+    -r|--rundir)
+        rundir=$2
+        shift
+        ;;
+    -s|--servers)
+        servercount=$2
+        shift
+        ;;
+    (--) shift; break;;
+    (-*) echo "$0: error - unrecognized option $1" 1>&2; exit 1;;
+    (*) break;;
+    esac
+    shift
+done
+
+if [ "$port" = "" ]; then
+    echo "You must specify --port"
+    usage
+fi
+
+if [ "$rundir" = "" ]; then
+    echo "You must specify --rundir"
+    usage
+fi
+
+# Convert rundir to absolute path
+pushd $rundir
+rundir=$(pwd)
+popd
+
+# the set of test cases to run
+tests="1 2 3 4 5 6 8 10 11 12"
+
+# The set of servers to use
+working_servers="
+    myth1
+    myth2
+    myth3
+    myth4
+    myth5
+    myth8
+    myth9
+    myth10
+    myth11
+    myth12
+    myth13
+    myth14
+    myth15
+    myth16
+    myth20
+    myth21
+    myth22
+    myth23
+    myth24
+    myth25
+    myth26
+    myth27
+    myth28
+    myth29
+    myth30
+    myth31
+    myth32
+"
+broken_servers="
+    myth6
+    myth7
+    myth17
+    myth18
+    myth19
+"
+
+# use just the first $servercount servers
+servers=$( ( for server in $working_servers ; do echo $server; done) |
+           head -n $servercount )
+
+# Path where servers will store files
+mountdir="$rundir/mount"
+
+# Server
+serverexec=replFsServer
+
+# Client
+test_bin="./test"
+
+# useful info
+date
+echo "test_bin = $test_bin"
+
+make RUNDIR=$rundir clean
+make RUNDIR=$rundir
+
+passed=0
+
+sshx () {
+    server=$1
+    cmd=$2
+    echo ssh $server \"$cmd\"
+    ssh $server "$cmd"
+}
+
+killServers () {
+    for server in $servers; do
+        ssh $server killall -s 9 $serverexec >/dev/null 2>&1 || true
+    done
+}
+
+for test in $tests ; do
+
+  info="$packetloss% loss, $servercount servers"
+
+  # ensure clean test directories
+  echo "***** cleaning test directories *****"
+  rm -rf $mountdir
+  mkdir -p $mountdir
+
+  echo "***** STARTING servers  #$test *****"
+  echo "PORT = $port"
+  echo "SERVERS =" $servers
+  killServers
+  for server in $servers ; do
+    server_args="-port $port -mount $mountdir/$server -drop $packetloss"
+    sshx $server "cd $rundir; ./$serverexec $server_args"&
+  done
+  sleep 2
+
+  echo "***** CHECKING whether servers have started *****"
+  for server in $servers ; do
+    echo -n "$server: "
+    ssh $server ps ax | grep $serverexec
+  done
+
+  echo "***** STARTING TEST #$test ($info) *****"
+  test_args=$(echo -port $port -servers $servercount -test $test -packetloss $packetloss $servers)
+  echo "$test_bin $test_args"
+  $test_bin $test_args
+
+  # check results
+  echo "***** CHECKING #$test *****"
+
+  echo "result directory:"
+  ls $mountdir/*
+  errors=0
+
+  for server in $servers ; do
+    echo "diff $mountdir/$server/file$test - < correct/file$test"
+    diff $mountdir/$server/file$test - < correct/file$test
+    if [ $? == 0 ] ; then
+      echo "server $server passed test $test"
+    else
+      echo "server $server failed test $test"
+      let errors+=1
+    fi
+  done
+
+  # Test 3 OK if there is no output
+  for ok in 3; do
+      if [ $test -eq $ok ] ; then
+        if [ `ls $mountdir/*/* | wc -w` -eq 0 ] ; then
+          echo "test $ok: empty files OK"
+          errors=0
+        fi
+      fi
+  done
+
+
+  echo "***** TEST #$test ERRORS:$errors ($info) *****"
+
+  if [ $errors -eq 0 ] ; then
+      echo "***** TEST #$test PASSED *****"
+      let passed+=1
+  else
+      echo "***** TEST #$test FAILED *****"
+  fi
+
+  echo "***** STOPPING servers *****"
+  killall ssh
+  killServers
+
+done
+
+total=`echo $tests | wc -w`
+echo "***** PASSED $passed TESTS OF $total ($info) *****"
+
+# done
+date
+echo "***** TESTS DONE *****"

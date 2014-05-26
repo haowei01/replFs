@@ -4,7 +4,8 @@ using namespace std;
 
 class Server : public NetworkInstance {
 public:
-  Server() : readyToCommit_(false), lastCommitId_(-1) { }
+  Server() : readyToCommit_(false), lastCommitId_(-1), totalWriteCount_(0),
+             openFile_(false){ }
   void clientIdIs(unsigned clientId) { clientId_ = clientId; }
   inline unsigned int clientId() { return clientId_; }
   void dirIs(string dirname) { dirname_ = dirname; }
@@ -16,6 +17,7 @@ public:
   bool readyToCommit_;
   int lastCommitId_;
   size_t totalWriteCount_;
+  bool openFile_;
 private:
   unsigned int clientId_;
   string dirname_;
